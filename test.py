@@ -23,7 +23,7 @@ config={
 }
 # 数据
 # db = pymysql.connect(**config)
-# 数据库指针
+# # 数据库指针
 # cursor = db.cursor()
 
 
@@ -93,10 +93,24 @@ def getSpecAll():
     return json.loads(matchObj.group(1))
     
 # print(getSpecAll())
+i=0
+while i < 2000:
+    if i % 500 == 0:
+        db = pymysql.connect(**config)
+        cursor = db.cursor(cursor=pymysql.cursors.DictCursor)
+    i = i + 1    
+    sql = 'SELECT id FROM think_car_series where id = %s' % i
+    cursor.execute(sql)
+    res = cursor.fetchall()
+    if len(res) != 0:
+        print(getSpec(res[0]['id']))
 
+    if i % 500 == 0:
+        cursor.close()
+        db.close()
 
 # 爬取车系数据
-car_list = getSpecAll()
+# car_list = getSpecAll()
 
 
 # for index in range(0,len(car_list)):
@@ -158,28 +172,28 @@ car_list = getSpecAll()
     #         f.write('已加载到车系id'+str(_id)+'\n\r')
     #     spec = getSpec(_id)
 
-    #     for x in range(0,len(spec)):
-    #         cursor = db.cursor()
-    #         print(spec[x])
-    #         __id = spec[x]['I']
-    #         __name = spec[x]['N']
-    #         price = spec[x]['P']
-    #         # 存储车系sql语句
-    #         sql = """REPLACE INTO think_car_spec(
-    #             id,
-    #             sid,
-    #             name,
-    #             price,
-    #             status,
-    #             update_time) 
-    #             VALUES(\'%s\',\'%s\',\'%s\',\'%s\',\'%s\',\'%s\')
-    #         """ % (__id, _id, _name, price, 1, int(time.time()))
-    #         # 执行Sql
-    #         cursor.execute(sql)
-    #         # 提交数据
-    #         db.commit() 
-    #         cursor.close()
-    #     db.close()
+        # for x in range(0,len(spec)):
+        #     cursor = db.cursor()
+        #     print(spec[x])
+        #     __id = spec[x]['I']
+        #     __name = spec[x]['N']
+        #     price = spec[x]['P']
+        #     # 存储车系sql语句
+        #     sql = """REPLACE INTO think_car_spec(
+        #         id,
+        #         sid,
+        #         name,
+        #         price,
+        #         status,
+        #         update_time) 
+        #         VALUES(\'%s\',\'%s\',\'%s\',\'%s\',\'%s\',\'%s\')
+        #     """ % (__id, _id, _name, price, 1, int(time.time()))
+        #     # 执行Sql
+        #     cursor.execute(sql)
+        #     # 提交数据
+        #     db.commit() 
+        #     cursor.close()
+        # db.close()
 
 # db.close()
 
