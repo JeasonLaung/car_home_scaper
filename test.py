@@ -7,7 +7,10 @@ from lxml import etree
 import json
 import re
 import pymysql
-import data
+# import data
+
+cid = 0
+
 # 设置当前工作区域
 os.chdir(os.path.split(os.path.realpath(__file__))[0])
 # 获取
@@ -66,7 +69,16 @@ def getColor(spec_id):
     detail_url='https://www.autohome.com.cn/spec/%s' % spec_id
     html = requests.get(detail_url).text
     _element = etree.HTML(html)
-    res = _element.xpath('//div[@class="athm-carcolor__tip"]/text()')
+    res = [0,0]
+    res[0] = _element.xpath('//div[@class="pic-color"]//div[@class="athm-carcolor__tip"]/text()')
+    res[1] = []
+    tmp = _element.xpath('//div[@class="pic-color"]//em[@class="item-all"]/@style')
+     # res = list(set(res))
+    for item in tmp:
+        print(item)
+        matchObj = re.compile(r'\#.{6}').findall(item)
+        res[1].append(matchObj[0])
+    
     return res
 
 # getColor()
@@ -75,12 +87,11 @@ def getSpec(series_id):
     s_url = 'https://car.autohome.com.cn/duibi/ashx/specComparehandler.ashx?callback=jsonpCallback&type=1&seriesid=%s&format=json' % series_id
     line = requests.get(s_url).text
     # print(line)
-    matchObj = re.match( r'jsonpCallback\((.*?)\)', line, re.M|re.I)
-    if matchObj:
-        # print("matchObj.group() : ", matchObj.group())
-        # return json.loads(matchObj.group(1))['List'][0]['List']
-        return json.loads(matchObj.group(1))['List']
-        # print("matchObj.group(2) : ", matchObj.group(2))
+    # print(line)
+    matchObj = re.compile( r'jsonpCallback\((\{.*?\})\)').findall(line)
+
+    if len(matchObj) != 0:
+        return json.loads(matchObj[0])['List']
     else:
         return []
 # getSpec(179)
@@ -88,26 +99,192 @@ def getSpec(series_id):
 def getSpecAll():
     s_url = 'https://car.autohome.com.cn/javascript/NewSpecCompare.js?20131010'
     line = requests.get(s_url).text
-    matchObj = re.match( r'var listCompare\$100= (.*?);', line, re.M|re.I)
+    matchObj = re.compile( r'var listCompare\$100= (.*?);').findall(line)
     # print(string)
-    return json.loads(matchObj.group(1))
+    return json.loads(matchObj[0])
     
 # print(getSpecAll())
-i=0
-while i < 2000:
-    if i % 500 == 0:
-        db = pymysql.connect(**config)
-        cursor = db.cursor(cursor=pymysql.cursors.DictCursor)
-    i = i + 1    
-    sql = 'SELECT id FROM think_car_series where id = %s' % i
-    cursor.execute(sql)
-    res = cursor.fetchall()
-    if len(res) != 0:
-        print(getSpec(res[0]['id']))
+# 车系
 
-    if i % 500 == 0:
-        cursor.close()
-        db.close()
+def actionGetSeries():
+    res = getSpecAll()
+    db = pymysql.connect(**config)
+    cursor = db.cursor(cursor=pymysql.cursors.DictCursor)
+    for index0 in range(0,len(res)):
+        brand = res[index0]
+        brand_id = brand['I']
+        brand_name = brand['N']
+        brand_letter = brand['L']
+        factory_arr = brand['List']
+        sql = """REPLACE INTO
+            think_car_brand(
+                id,
+                name,
+                letter,
+                update_time
+            )
+            VALUES('%s','%s','%s', '%s')
+        """ % (brand_id, brand_name, brand_letter, time.time())
+        cursor.execute(sql)
+        db.commit()
+
+        for index1 in range(0,len(factory_arr)):
+            
+            factory_name = factory_arr[index1]['N']
+            factory_id = factory_arr[index1]['I']
+            if re.search(r'进口', factory_name) == None:
+                factory_type = 0
+            else:
+                factory_type = 1
+
+            spec_arr = factory_arr[index1]['List']
+            
+            sql = """REPLACE INTO 
+                think_car_factory(
+                    id,
+                    name,
+                    update_time
+                )
+                VALUES('%s','%s','%s')
+            """ % (factory_id, factory_name, time.time())
+            cursor.execute(sql)
+            db.commit()
+
+            for index2 in spec_arr:
+                
+
+    # 完成重置最大值
+    cid = 0
+# 爬取颜色
+def actionGetColor(i=0):
+    max_len = 0
+    db = pymysql.connect(**config)
+    cursor = db.cursor(cursor=pymysql.cursors.DictCursor)
+    if max_len == 0:
+        sql = """SELECT 
+                id 
+            FROM think_car_spec
+            WHERE id < 10000000
+            ORDER BY id desc
+            LIMIT 1
+        """
+        cursor.execute(sql)
+        res = cursor.fetchall()
+        max_id = res['id']
+
+    # 到达多少次查询后自动断开
+    connect_time = 60
+    start_time = time.time()
+    while i < max_id:
+        if db == None:
+            db = pymysql.connect(**config)
+            cursor = db.cursor(cursor=pymysql.cursors.DictCursor)
+        i = i + 1
+        sql = 'SELECT id FROM think_car_spec where id = %s' % i
+        cursor.execute(sql)
+        res = cursor.fetchall()
+        if len(res) == 0:
+            continue
+
+        print('正在处理id为'+str(i)+'的车型颜色')
+        color_arr = getColor(i)
+        color_name_arr = color_arr[0]
+        color_color_arr = color_arr[1]
+        
+        for a in range(0,len(color_name_arr)):
+            print('插入颜色' + color_name_arr[a])
+            sql = """INSERT INTO think_car_color(
+                sid,
+                hex,
+                color,
+                status,
+                update_time) 
+                VALUES('%s','%s','%s','%s','%s')
+            """ % (i, color_color_arr[a],color_name_arr[a], 1, int(time.time()))
+            # 执行Sql
+            cursor.execute(sql)
+            # 提交数据
+            db.commit()
+
+        if  time.time() -  start_time > connect_time:
+            
+            start_time = time.time()
+            # 重新重连
+            cursor.close()
+            db.close()
+            db = None
+
+            print('开始重连...')
+            time.sleep(1)
+    
+
+# while i < 6000:
+#     # if i % connect_times == 0:
+#     #     db = pymysql.connect(**config)
+#     #     cursor = db.cursor(cursor=pymysql.cursors.DictCursor)
+#     if db == None:
+#         db = pymysql.connect(**config)
+#         cursor = db.cursor(cursor=pymysql.cursors.DictCursor)
+
+#     i = i + 1    
+#     sql = 'SELECT id FROM think_car_series where id = %s' % i
+#     cursor.execute(sql)
+#     res = cursor.fetchall()
+#     if len(res) != 0:
+#         spec_list = getSpec(res[0]['id'])
+#         # print(spec_list)
+#         # sys.exit(0)
+#         for x in spec_list:
+#             # 在售车型
+#             if x['I'] == 1:
+#                 mark_spec = x['List']
+#                 # 遍历车系的所有车型
+#                 for y in mark_spec:
+#                     print('正在处理id为'+str(i)+'的车系')
+#                     _id = y['I']
+#                     _name = y['N']
+#                     _price = y['P']
+#                     sql = """REPLACE INTO think_car_spec(
+#                         id,
+#                         sid,
+#                         name,
+#                         price,
+#                         status,
+#                         update_time) 
+#                         VALUES('%s','%s','%s','%s','%s','%s')
+#                     """ % (_id, i,_name, _price, 1, int(time.time()))
+#                     # 执行Sql
+#                     cursor.execute(sql)
+#                     # 提交数据
+#                     db.commit()
+
+#                     # 颜色断点
+#                     if _id < 37269:
+#                         continue
+
+#                     color_arr = getColor(_id)
+#                     color_name_arr = color_arr[0]
+#                     color_color_arr = color_arr[1]
+#                     # print(color_arr)
+#                     for a in range(len(color_name_arr)):
+#                         print('正在处理id为'+str(_id)+'的车型颜色')
+#                         sql = """INSERT INTO think_car_color(
+#                             sid,
+#                             hex,
+#                             color,
+#                             status,
+#                             update_time) 
+#                             VALUES('%s','%s','%s','%s','%s')
+#                         """ % (_id, color_color_arr[a],color_name_arr[a], 1, int(time.time()))
+#                         # 执行Sql
+#                         cursor.execute(sql)
+#                         # 提交数据
+#                         db.commit()
+
+#     if i % connect_times == 0:
+#         cursor.close()
+#         db.close()
+#         db = None
 
 # 爬取车系数据
 # car_list = getSpecAll()
