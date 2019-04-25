@@ -8,9 +8,11 @@ import json
 import re
 import pymysql
 # import data
-
-cid = 0
-
+btime = time.time()
+max_id = 0
+current_id = 0
+start_time = time.time()
+reconnect_time = 60
 # 设置当前工作区域
 os.chdir(os.path.split(os.path.realpath(__file__))[0])
 # 获取
@@ -104,13 +106,26 @@ def getSpecAll():
     return json.loads(matchObj[0])
     
 # print(getSpecAll())
-# 车系
 
+
+
+# 车系
 def actionGetSeries():
+    global start_time
+    global reconnect_time
     res = getSpecAll()
     db = pymysql.connect(**config)
     cursor = db.cursor(cursor=pymysql.cursors.DictCursor)
     for index0 in range(0,len(res)):
+        # 重连
+        if time.time() - start_time > reconnect_time:
+            cursor.close()
+            db.close()
+            start_time = time.time()
+            time.sleep(1)
+            db = pymysql.connect(**config)
+            cursor = db.cursor(cursor=pymysql.cursors.DictCursor)
+
         brand = res[index0]
         brand_id = brand['I']
         brand_name = brand['N']
@@ -137,57 +152,207 @@ def actionGetSeries():
             else:
                 factory_type = 1
 
-            spec_arr = factory_arr[index1]['List']
+            series_arr = factory_arr[index1]['List']
             
             sql = """REPLACE INTO 
                 think_car_factory(
                     id,
                     name,
+                    type,
                     update_time
                 )
-                VALUES('%s','%s','%s')
-            """ % (factory_id, factory_name, time.time())
+                VALUES('%s','%s','%s','%s')
+            """ % (factory_id, factory_name, factory_type, time.time())
             cursor.execute(sql)
             db.commit()
 
-            for index2 in spec_arr:
-                
+            for series in series_arr:
+                series_id = series['I']
+                series_name = series['N']
+                # spec_price = spec['P']
+                sql = """REPLACE INTO 
+                    think_car_series(
+                        id,
+                        fid,
+                        name,
+                        status,
+                        update_time
+                    )
+                    VALUES('%s','%s','%s','%s','%s')
+                """ % (series_id, factory_id, series_name, 1, time.time())
+                cursor.execute(sql)
+                db.commit()
+                print('完成车系：'+series_name + str(series_id) +'插入')
 
-    # 完成重置最大值
-    cid = 0
-# 爬取颜色
-def actionGetColor(i=0):
-    max_len = 0
+            print('完成厂家：'+factory_name + str(factory_id) +'的车系插入')
+
+        print('完成品牌：'+brand_name + str(brand_id) +'厂家处理')
+
+    print('完成所有品牌处理')
+
+    cursor.close()
+    db.close()
+
+    return True
+
+
+def actionGetSpec():
+    global start_time
+    global current_id
+    global max_id
+    global reconnect_time
     db = pymysql.connect(**config)
     cursor = db.cursor(cursor=pymysql.cursors.DictCursor)
-    if max_len == 0:
-        sql = """SELECT 
+    
+    # 获取最大id
+    if max_id == 0:
+        sql = """
+            SELECT 
                 id 
-            FROM think_car_spec
-            WHERE id < 10000000
-            ORDER BY id desc
+            FROM 
+                think_car_series
+            ORDER BY 
+                id desc
             LIMIT 1
         """
         cursor.execute(sql)
         res = cursor.fetchall()
-        max_id = res['id']
+        max_id = res[0]['id']
 
-    # 到达多少次查询后自动断开
-    connect_time = 60
-    start_time = time.time()
-    while i < max_id:
-        if db == None:
+    #找到最大的
+    # current_id = i or current_id
+    while current_id <= max_id+1:
+        current_id = current_id + 1
+        # 重连
+        if time.time() - start_time > reconnect_time:
+            cursor.close()
+            db.close()
+            start_time = time.time()
+            time.sleep(1)
             db = pymysql.connect(**config)
             cursor = db.cursor(cursor=pymysql.cursors.DictCursor)
-        i = i + 1
-        sql = 'SELECT id FROM think_car_spec where id = %s' % i
+        sql = """
+            SELECT 
+                id
+            FROM
+                think_car_series
+            WHERE
+                id >= '%s'
+            ORDER BY
+                id ASC
+            LIMIT 1
+        """ % (current_id)
         cursor.execute(sql)
         res = cursor.fetchall()
         if len(res) == 0:
+            print('完成车型插入')
+            return
+        current_id = res[0]['id']
+        # if len(res) == 0:
+        #     continue
+        # 存在id
+        spec_arr = getSpec(current_id)        
+        print('开始进行车系为'+str(current_id)+'的处理')
+        print(spec_arr)
+        if len(spec_arr) == 0:
             continue
+        
+        for _spec in spec_arr:
+            # 不是在售车型
+            if _spec['I'] != 1:
+                continue
+            specs = _spec['List']
+            
+            for spec in specs:
+                spec_id = spec['I']
+                spec_name = spec['N']
+                spec_price = spec['P']
+                sql = """
+                    REPLACE INTO 
+                    think_car_spec(
+                        id,
+                        sid,
+                        name,
+                        price,
+                        status,
+                        update_time
+                    )
+                    VALUES('%s','%s','%s','%s','%s','%s')
+                """ % (spec_id,current_id,spec_name,spec_price,1,time.time())
+                cursor.execute(sql)
+                db.commit()
 
-        print('正在处理id为'+str(i)+'的车型颜色')
-        color_arr = getColor(i)
+                print('完成车型'+spec_name+str(spec_id)+'插入')
+            print('完成车系id为'+str(current_id)+'的车型插入')
+
+    # 结束
+    max_id = 0
+    current_id = 0 
+    print('完成所有车型插入')
+
+
+
+# 完成重置最大值
+# cid = 0
+# 爬取颜色
+def actionGetColor():
+    global start_time
+    global current_id
+    global max_id
+    global reconnect_time
+    db = pymysql.connect(**config)
+    cursor = db.cursor(cursor=pymysql.cursors.DictCursor)
+    
+
+    if max_id == 0:
+        sql = """
+            SELECT 
+                id 
+            FROM 
+                think_car_spec
+            ORDER BY 
+                id desc
+            LIMIT 1
+        """
+        cursor.execute(sql)
+        res = cursor.fetchall()
+        print(max_id)
+        max_id = res[0]['id']
+
+    while current_id <= max_id+1:
+        # 重连
+        current_id = current_id + 1
+        if time.time() - start_time > reconnect_time:
+            cursor.close()
+            db.close()
+            start_time = time.time()
+            time.sleep(1)
+            db = pymysql.connect(**config)
+            cursor = db.cursor(cursor=pymysql.cursors.DictCursor)
+        sql = """
+            SELECT 
+                id,
+                name
+            FROM 
+                think_car_spec 
+            where 
+                id >= %s
+            order by
+                id asc
+            limit 1
+        """ % current_id
+        cursor.execute(sql)
+        res = cursor.fetchall()
+        if len(res) == 0:
+            print('完成颜色插入')
+            return
+        current_id = res[0]['id']
+        spec_name = res[0]['name']
+        # if len(res) == 0:
+        #     continue
+
+        print('正在处理id为'+str(current_id)+'的车型颜色')
+        color_arr = getColor(current_id)
         color_name_arr = color_arr[0]
         color_color_arr = color_arr[1]
         
@@ -200,23 +365,41 @@ def actionGetColor(i=0):
                 status,
                 update_time) 
                 VALUES('%s','%s','%s','%s','%s')
-            """ % (i, color_color_arr[a],color_name_arr[a], 1, int(time.time()))
+            """ % (current_id, color_color_arr[a],color_name_arr[a], 1, int(time.time()))
             # 执行Sql
             cursor.execute(sql)
             # 提交数据
             db.commit()
-
-        if  time.time() -  start_time > connect_time:
-            
-            start_time = time.time()
-            # 重新重连
-            cursor.close()
-            db.close()
-            db = None
-
-            print('开始重连...')
-            time.sleep(1)
+            print('颜色'+color_color_arr[a]+color_name_arr[a]+'插入成功')
+        print('车型'+spec_name+str(current_id)+'插入成功')
+    print('颜色已经全部插入成功')
     
+
+    
+if __name__ == '__main__':
+    # 1
+    # actionGetSeries()
+    # 2
+    # try:
+    #     actionGetSpec()
+    # except:
+    #     # 异常重连
+    #     print('异常重连')
+    #     print('current_id',str(current_id))
+    #     print('start_time',str(start_time))
+    #     time.sleep(2)
+    #     actionGetSpec()
+    # 3
+    try:
+        actionGetColor()
+    except:
+        # 异常重连
+        print('异常重连')
+        print('current_id',str(current_id))
+        print('start_time',str(start_time))
+        time.sleep(2)
+        actionGetColor()
+    print('全部完成耗时'+str(time.time()-btime))
 
 # while i < 6000:
 #     # if i % connect_times == 0:
