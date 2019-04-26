@@ -113,10 +113,10 @@ def getSpecAll():
 def actionGetSeries():
     global start_time
     global reconnect_time
-    res = getSpecAll()
+    res0 = getSpecAll()
     db = pymysql.connect(**config)
     cursor = db.cursor(cursor=pymysql.cursors.DictCursor)
-    for index0 in range(0,len(res)):
+    for index0 in range(0,len(res0)):
         # 重连
         if time.time() - start_time > reconnect_time:
             cursor.close()
@@ -126,20 +126,22 @@ def actionGetSeries():
             db = pymysql.connect(**config)
             cursor = db.cursor(cursor=pymysql.cursors.DictCursor)
 
-        brand = res[index0]
+        brand = res0[index0]
         brand_id = brand['I']
         brand_name = brand['N']
+        brand_logo = getLogoName(brand_id)
         brand_letter = brand['L']
         factory_arr = brand['List']
         sql = """REPLACE INTO
             think_car_brand(
                 id,
                 name,
+                logo,
                 letter,
                 update_time
             )
             VALUES('%s','%s','%s', '%s')
-        """ % (brand_id, brand_name, brand_letter, time.time())
+        """ % (brand_id, brand_name,brand_logo, brand_letter, time.time())
         cursor.execute(sql)
         db.commit()
 
@@ -162,7 +164,7 @@ def actionGetSeries():
                     update_time
                 )
                 VALUES('%s','%s','%s','%s')
-            """ % (factory_id, factory_name, factory_type, time.time())
+            """ % (factory_id,factory_name, factory_type, time.time())
             cursor.execute(sql)
             db.commit()
 
