@@ -169,6 +169,12 @@ def actionGetSeries():
             for series in series_arr:
                 series_id = series['I']
                 series_name = series['N']
+                res = re.search('停售',series_name)
+                if res == None: 
+                    series_status = 0
+                else: 
+                    series_status = 1
+                    
                 # spec_price = spec['P']
                 sql = """REPLACE INTO 
                     think_car_series(
@@ -176,10 +182,11 @@ def actionGetSeries():
                         fid,
                         name,
                         status,
-                        update_time
+                        update_time,
+                        bid
                     )
-                    VALUES('%s','%s','%s','%s','%s')
-                """ % (series_id, factory_id, series_name, 1, time.time())
+                    VALUES('%s','%s','%s','%s','%s','%s')
+                """ % (series_id, factory_id, series_name, series_status, time.time(),brand_id)
                 cursor.execute(sql)
                 db.commit()
                 print('完成车系：'+series_name + str(series_id) +'插入')
@@ -378,7 +385,7 @@ def actionGetColor():
     
 if __name__ == '__main__':
     # 1
-    # actionGetSeries()
+    actionGetSeries()
     # 2
     # try:
     #     actionGetSpec()
@@ -390,16 +397,16 @@ if __name__ == '__main__':
     #     time.sleep(2)
     #     actionGetSpec()
     # 3
-    try:
-        actionGetColor()
-    except:
-        # 异常重连
-        print('异常重连')
-        print('current_id',str(current_id))
-        print('start_time',str(start_time))
-        time.sleep(2)
-        actionGetColor()
-    print('全部完成耗时'+str(time.time()-btime))
+    # try:
+    #     actionGetColor()
+    # except:
+    #     # 异常重连
+    #     print('异常重连')
+    #     print('current_id',str(current_id))
+    #     print('start_time',str(start_time))
+    #     time.sleep(2)
+    #     actionGetColor()
+    # print('全部完成耗时'+str(time.time()-btime))
 
 # while i < 6000:
 #     # if i % connect_times == 0:
